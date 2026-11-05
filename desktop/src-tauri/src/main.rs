@@ -11,10 +11,10 @@ mod service;
 #[tauri::command]
 fn open_external(url: String) -> Result<(), String> {
     const LINKS: [&str; 4] = [
-        "https://github.com/xlennart",
-        "https://github.com/xlennart/openOfficetab",
-        "https://github.com/xlennart/openOfficetab/releases",
-        "https://github.com/xlennart/openOfficetab/issues",
+        "https://github.com/IamNewHands",
+        "https://github.com/IamNewHands/openOfficeTab",
+        "https://github.com/IamNewHands/openOfficeTab/releases",
+        "https://github.com/IamNewHands/openOfficeTab/issues",
     ];
     if !LINKS.contains(&url.as_str()) {
         return Err("This destination is not allowed.".into());

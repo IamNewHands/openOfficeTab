@@ -1,4 +1,4 @@
-﻿# Shared by the per-user installer and uninstaller; never closes Office.
+# Shared by the per-user installer and uninstaller; never closes Office.
 function Enter-OotMaintenance {
     $mutex=[Threading.Mutex]::new($false,('Local\openOfficetab.Install.'+[Security.Principal.WindowsIdentity]::GetCurrent().User.Value))
     $locked=$false
@@ -40,7 +40,7 @@ function Install-OotDesktop {
         if($DesktopShortcut){$link=$shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) 'openOfficetab.lnk'));$link.TargetPath=$center;$link.WorkingDirectory=$directory;$link.IconLocation=$center+',0';$link.Save()}
     }finally{[void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell)}
     $uninstall='HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\openOfficetab';New-Item -Path $uninstall -Force | Out-Null
-    foreach($pair in @{DisplayName='openOfficeTab';DisplayVersion='0.2.3-beta.3';Publisher='xlennart';DisplayIcon=($center+',0');UninstallString=('"'+$center+'" --uninstall');URLInfoAbout='https://github.com/xlennart/openOfficetab';InstallLocation=$directory}.GetEnumerator()){Set-ItemProperty -LiteralPath $uninstall -Name $pair.Key -Value $pair.Value}
+    foreach($pair in @{DisplayName='openOfficeTab';DisplayVersion='0.2.3-beta.3';Publisher='IamNewHands';DisplayIcon=($center+',0');UninstallString=('"'+$center+'" --uninstall');URLInfoAbout='https://github.com/IamNewHands/openOfficeTab';InstallLocation=$directory}.GetEnumerator()){Set-ItemProperty -LiteralPath $uninstall -Name $pair.Key -Value $pair.Value}
     Set-ItemProperty -LiteralPath $uninstall -Name NoModify -Value 1 -Type DWord
     Set-ItemProperty -LiteralPath $uninstall -Name NoRepair -Value 1 -Type DWord
     Add-Type -Path (Join-Path $directory 'service\openOfficetab.Service.dll')

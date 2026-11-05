@@ -1,4 +1,4 @@
-﻿param([string]$Version='0.2.3-beta.3',[switch]$SkipBuild,[string]$OutputDirectory)
+param([string]$Version='0.2.3-beta.3',[switch]$SkipBuild,[string]$OutputDirectory)
 $ErrorActionPreference='Stop'
 $ootRoot=Split-Path $PSScriptRoot -Parent
 if($Version -ne '0.2.3-beta.3'){throw 'Update the native, service and Tauri versions together before packaging a different version.'}
@@ -39,7 +39,7 @@ $ootArchive=[IO.Compression.ZipFile]::Open($ootZip,[IO.Compression.ZipArchiveMod
 try{foreach($file in Get-ChildItem -LiteralPath $ootStage -File -Recurse){$relative=$file.FullName.Substring($ootStage.Length+1).Replace('\','/');[void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($ootArchive,$file.FullName,$relative,[IO.Compression.CompressionLevel]::Optimal)}}finally{$ootArchive.Dispose()}
 $ootPrivateKey=Join-Path $ootRoot 'build\signing\update-private-key.xml'
 if(Test-Path -LiteralPath $ootPrivateKey){
-    $ootMetadata=[ordered]@{schemaVersion=1;protocol='openofficetab-desktop-v1';architecture='x64';version=$Version;tag=('v'+$Version);name=[IO.Path]::GetFileName($ootSetup);url=('https://github.com/xlennart/openOfficetab/releases/download/v'+$Version+'/'+[IO.Path]::GetFileName($ootSetup));size=(Get-Item -LiteralPath $ootSetup).Length;sha256=(Get-FileHash -LiteralPath $ootSetup).Hash.ToLowerInvariant();channel='beta'}
+    $ootMetadata=[ordered]@{schemaVersion=1;protocol='openofficetab-desktop-v1';architecture='x64';version=$Version;tag=('v'+$Version);name=[IO.Path]::GetFileName($ootSetup);url=('https://github.com/IamNewHands/openOfficeTab/releases/download/v'+$Version+'/'+[IO.Path]::GetFileName($ootSetup));size=(Get-Item -LiteralPath $ootSetup).Length;sha256=(Get-FileHash -LiteralPath $ootSetup).Hash.ToLowerInvariant();channel='beta'}
     $ootReleaseNotes=Join-Path $ootRoot "docs/release-notes-v$Version.md"
     if(Test-Path -LiteralPath $ootReleaseNotes){
         $ootNotesText=[IO.File]::ReadAllText($ootReleaseNotes);$ootNotes=@{}

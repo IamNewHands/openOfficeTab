@@ -18,8 +18,10 @@ namespace OpenOfficeTab.Desktop {
   public string name;public bool available;public long latencyMs;public string status;
  }
  internal sealed class UpdateRoutes {
-  internal static readonly string[] Names={"GitHub","ghfast.top","ghproxy.com","mirror.ghproxy.com"};
-  static readonly string[] Prefixes={"","https://ghfast.top/","https://ghproxy.com/","https://mirror.ghproxy.com/"};
+  // Single first-party route only: the fork's own GitHub releases. Third-party
+  // mirrors are intentionally not used, so no request can leave this origin.
+  internal static readonly string[] Names={"GitHub"};
+  static readonly string[] Prefixes={""};
   static readonly OwnedUpdateSource[] Owned=LoadOwned();
   static OwnedUpdateSource[] LoadOwned(){
    using(var stream=Assembly.GetExecutingAssembly().GetManifestResourceStream("openOfficetab.UpdateSources"))using(var reader=new StreamReader(stream)){
@@ -64,7 +66,7 @@ namespace OpenOfficeTab.Desktop {
    return source.releaseBase.TrimEnd('/')+"/"+tag+"/"+filename;
   }
   internal RouteHealth[] Probe(){
-   const string bootstrap="https://github.com/xlennart/openOfficetab/releases/download/v0.1.9/SHA256SUMS.txt";
+   const string bootstrap=DesktopProgram.Repo+"/releases/latest/download/SHA256SUMS.txt";
    var tasks=Enumerable.Range(0,SourceCount).Select(index=>Task.Run(()=>{
     var result=new RouteHealth{name=SourceName(index)};var timer=Stopwatch.StartNew();
     try{string text=new UTF8Encoding(false,true).GetString(Read(index<Names.Length?Candidate(bootstrap,index):OwnedLatest(Owned[index-Names.Length],"SHA256SUMS.txt"),65536)).Replace("\r","");result.available=Regex.IsMatch(text,"(?m)^[0-9a-fA-F]{64}  openOfficetab-[^\\r\\n]+$");result.status=result.available?"内容探测通过":"响应不是有效发布校验清单";}
@@ -104,7 +106,7 @@ namespace OpenOfficeTab.Desktop {
    // Only the user's Beta channel preference opts into discovery. API data is untrusted: it
    // can nominate tags, but every candidate still needs the existing RSA trust anchor.
    if(new Services(root).AcceptsPrerelease)try{
-    var list=new JavaScriptSerializer().DeserializeObject(new UTF8Encoding(false,true).GetString(Read("https://api.github.com/repos/xlennart/openOfficeTab/releases?per_page=20",2*1024*1024))) as object[];
+    var list=new JavaScriptSerializer().DeserializeObject(new UTF8Encoding(false,true).GetString(Read("https://api.github.com/repos/IamNewHands/openOfficeTab/releases?per_page=20",2*1024*1024))) as object[];
     if(list!=null)foreach(var item in list.OfType<Dictionary<string,object>>().Where(item=>item.ContainsKey("draft")&&item["draft"] is bool&&!(bool)item["draft"]&&item.ContainsKey("prerelease")&&item["prerelease"] is bool&&(bool)item["prerelease"]).Take(6))try{
      string tag=item["tag_name"] as string;var identity=ReleaseVersion.Parse(tag!=null&&tag.StartsWith("v",StringComparison.Ordinal)?tag.Substring(1):tag);if(!identity.Prerelease||identity.Channel=="alpha")continue;
      string beta=DesktopProgram.Repo+"/releases/download/"+tag+"/openofficetab-update-beta.json";

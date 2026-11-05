@@ -48,7 +48,7 @@ namespace OpenOfficeTab.Desktop {
    if(routes!=null){if(force)routes.Probe();var signed=routes.SignedRelease();return signed??UpdateRoutes.LegacyCurrent();}
    string cache=Path.Combine(services.Store.Root,"updates","latest.json"),json=null;
    if(!force&&File.Exists(cache)&&DateTime.UtcNow-File.GetLastWriteTimeUtc(cache)<TimeSpan.FromHours(6))json=File.ReadAllText(cache,Encoding.UTF8);
-   if(json==null){json=FetchText("https://api.github.com/repos/xlennart/openOfficetab/releases/latest",2*1024*1024);var checkedRelease=Parse(json);Directory.CreateDirectory(Path.GetDirectoryName(cache));File.WriteAllText(cache,json,new UTF8Encoding(false));return checkedRelease;}
+   if(json==null){json=FetchText("https://api.github.com/repos/IamNewHands/openOfficeTab/releases/latest",2*1024*1024);var checkedRelease=Parse(json);Directory.CreateDirectory(Path.GetDirectoryName(cache));File.WriteAllText(cache,json,new UTF8Encoding(false));return checkedRelease;}
    return Parse(json);
   }
   internal ReleaseVersion CurrentIdentity(){var installed=ReleaseVersion.Parse(Services.DisplayVersion);string value=(string)Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\openOfficetab","DesktopVersion",Services.DisplayVersion);try{var registered=ReleaseVersion.Parse(value);if(registered.CompareTo(installed)>0)installed=registered;}catch(InvalidDataException){}return installed;}

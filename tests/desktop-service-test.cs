@@ -40,7 +40,7 @@ namespace OpenOfficeTab.Desktop {
    var values=store.Section("openOfficetab");Check(values["barColor"]=="#ABCDEF"&&values["tabWidth"]=="176"&&values["group"]=="0"&&values["futureKey"]=="preserve","merge preserves concurrent and unknown settings");
    store.Merge("desktop",new Dictionary<string,string>{{"autoCheck","1"}});Check(store.Section("openOfficetab")["futureKey"]=="preserve","desktop preferences preserve native section");
    var file=Path.Combine(root,"settings.ini");Check(File.ReadAllBytes(file)[0]==255&&File.ReadAllBytes(file)[1]==254,"native UTF-16 BOM");Check(StateStore.Identity(root)==StateStore.Identity(root.ToUpperInvariant()),"native mutex path identity");
-   string metadata="{\"tag_name\":\"v99.0.0\",\"draft\":false,\"prerelease\":false,\"assets\":[{\"name\":\"openOfficetab-99.0.0-setup-x64.exe\",\"browser_download_url\":\"https://github.com/xlennart/openOfficetab/releases/download/v99.0.0/openOfficetab-99.0.0-setup-x64.exe\",\"size\":4}]}";
+   string metadata="{\"tag_name\":\"v99.0.0\",\"draft\":false,\"prerelease\":false,\"assets\":[{\"name\":\"openOfficetab-99.0.0-setup-x64.exe\",\"browser_download_url\":\"https://github.com/IamNewHands/openOfficeTab/releases/download/v99.0.0/openOfficetab-99.0.0-setup-x64.exe\",\"size\":4}]}";
    byte[] content={77,90,1,2};string hash=Hash(content);int downloads=0;
    var client=new UpdateClient(new Services(root),(url,output,limit)=>{byte[] bytes;if(url.EndsWith("SHA256SUMS.txt"))bytes=Encoding.UTF8.GetBytes(hash+"  openOfficetab-99.0.0-setup-x64.exe\n");else {downloads++;bytes=content;}output.Write(bytes,0,bytes.Length);});
    var release=UpdateClient.Parse(metadata);Check(release.Version==new Version(99,0,0),"parse stable release");
