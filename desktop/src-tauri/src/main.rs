@@ -102,13 +102,25 @@ fn main() {
         .plugin(tauri_plugin_single_instance::init(|app, args, _| { if let Some(window) = app.get_webview_window("main") { let _ = window.unminimize(); let _ = window.set_focus(); let _ = window.emit("open-page", json!({"page":page(&args),"language":language(&args)})); } }))
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            // Window sizing is cosmetic. Some Windows builds answer the monitor
+            // query or the resize with os error 5, and returning that error here
+            // aborts the whole launch, so every step is reported and skipped
+            // instead of propagated; the configured size stays as the fallback.
             if let Some(window) = app.get_webview_window("main") {
-                if let Some(monitor) = window.current_monitor()? {
-                    let scale = monitor.scale_factor();
-                    let width = (monitor.size().width as f64 / scale * 0.88).min(920.0);
-                    let height = (monitor.size().height as f64 / scale * 0.86).min(700.0);
-                    window.set_size(tauri::LogicalSize::new(width, height))?;
-                    window.center()?;
+                match window.current_monitor() {
+                    Ok(Some(monitor)) => {
+                        let scale = monitor.scale_factor();
+                        let width = (monitor.size().width as f64 / scale * 0.88).min(920.0);
+                        let height = (monitor.size().height as f64 / scale * 0.86).min(700.0);
+                        if let Err(error) = window.set_size(tauri::LogicalSize::new(width, height)) {
+                            eprintln!("openOfficetab: set_size refused: {error}");
+                        }
+                        if let Err(error) = window.center() {
+                            eprintln!("openOfficetab: center refused: {error}");
+                        }
+                    }
+                    Ok(None) => eprintln!("openOfficetab: no current monitor, keeping configured size"),
+                    Err(error) => eprintln!("openOfficetab: current_monitor refused: {error}"),
                 }
             }
             Ok(())
@@ -116,5 +128,9 @@ fn main() {
         .manage(runtime)
         .on_window_event(move |_, event| { if let tauri::WindowEvent::CloseRequested { api, .. } = event { if closing.critical.load(Ordering::SeqCst) { api.prevent_close(); } } })
         .invoke_handler(tauri::generate_handler![boot, service::service, export_diagnostics, open_external, open_update_window, set_update_language])
-        .run(tauri::generate_context!()).expect("Unable to launch openOfficetab");
+        .run(tauri::generate_context!())
+        .unwrap_or_else(|error| {
+            eprintln!("openOfficetab: center failed to start: {error}");
+            std::process::exit(1);
+        });
 }
