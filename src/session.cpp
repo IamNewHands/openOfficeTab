@@ -3,6 +3,13 @@
 #include "window-layout.h"
 #include "tab-color.h"
 #include "excel-input.h"
+#include "tab-menu.h"
+#include "rename-transition.h"
+#include <msopc.h>
+#include <xmllite.h>
+#include <cstring>
+
+#pragma comment(lib, "xmllite.lib")
 
 // Compact only the task pane reached through our own ActiveX ancestry. Office
 // draws the title inside its client area. A separate root child renders in the
@@ -484,6 +491,222 @@ bool Session::save(unsigned long long id,bool saveAs){
     }catch(const ComError& e){report(e);return false;}
     if(!refresh())return false;auto actual=find(id);return actual&&actual->saved;
 }
+namespace {
+enum class PresentationFormat { unknown, transitional, strict };
+
+PresentationFormat presentationFormat(const std::wstring& path) {
+    Ptr<IOpcFactory> factory;
+    Ptr<IStream> archive;
+    Ptr<IOpcPackage> package;
+    Ptr<IOpcRelationshipSet> relationships;
+    Ptr<IOpcPartSet> parts;
+    if (FAILED(CoCreateInstance(__uuidof(OpcFactory), nullptr, CLSCTX_INPROC_SERVER,
+            IID_PPV_ARGS(factory.out()))) ||
+        FAILED(factory->CreateStreamOnFile(path.c_str(), OPC_STREAM_IO_READ, nullptr,
+            FILE_ATTRIBUTE_NORMAL, archive.out())) ||
+        FAILED(factory->ReadPackageFromStream(archive.get(), OPC_CACHE_ON_ACCESS, package.out())) ||
+        FAILED(package->GetRelationshipSet(relationships.out())) ||
+        FAILED(package->GetPartSet(parts.out()))) return PresentationFormat::unknown;
+
+    constexpr struct { PresentationFormat format; const wchar_t* type; const wchar_t* xmlNamespace; } formats[] = {
+        {PresentationFormat::transitional,
+            L"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument",
+            L"http://schemas.openxmlformats.org/presentationml/2006/main"},
+        {PresentationFormat::strict,
+            L"http://purl.oclc.org/ooxml/officeDocument/relationships/officeDocument",
+            L"http://purl.oclc.org/ooxml/presentationml/main"}
+    };
+    auto found = PresentationFormat::unknown;
+    for (const auto& candidate : formats) {
+        Ptr<IOpcRelationshipEnumerator> entries;
+        BOOL present = FALSE;
+        if (FAILED(relationships->GetEnumeratorForType(candidate.type, entries.out())) ||
+            FAILED(entries->MoveNext(&present))) return PresentationFormat::unknown;
+        if (!present) continue;
+        if (found != PresentationFormat::unknown) return PresentationFormat::unknown;
+        Ptr<IOpcRelationship> relation;
+        OPC_URI_TARGET_MODE mode{};
+        Ptr<IOpcUri> source;
+        Ptr<IUri> target;
+        Ptr<IOpcPartUri> partUri;
+        Ptr<IOpcPart> part;
+        if (FAILED(entries->GetCurrent(relation.out())) ||
+            FAILED(entries->MoveNext(&present)) || present ||
+            FAILED(relation->GetTargetMode(&mode)) || mode != OPC_URI_TARGET_MODE_INTERNAL ||
+            FAILED(relation->GetSourceUri(source.out())) ||
+            FAILED(relation->GetTargetUri(target.out())) ||
+            FAILED(source->CombinePartUri(target.get(), partUri.out())) ||
+            FAILED(parts->GetPart(partUri.get(), part.out()))) return PresentationFormat::unknown;
+        LPWSTR contentType = nullptr;
+        if (FAILED(part->GetContentType(&contentType))) return PresentationFormat::unknown;
+        const bool isPresentation = contentType &&
+            wcscmp(contentType, L"application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml") == 0;
+        CoTaskMemFree(contentType);
+        if (!isPresentation) return PresentationFormat::unknown;
+
+        Ptr<IStream> xml;
+        Ptr<IXmlReader> reader;
+        if (FAILED(part->GetContentStream(xml.out())) ||
+            FAILED(CreateXmlReader(IID_PPV_ARGS(reader.out()), nullptr)) ||
+            FAILED(reader->SetProperty(XmlReaderProperty_DtdProcessing, DtdProcessing_Prohibit)) ||
+            FAILED(reader->SetInput(xml.get()))) return PresentationFormat::unknown;
+        XmlNodeType node{};
+        while (reader->Read(&node) == S_OK && node != XmlNodeType_Element) {}
+        const wchar_t* local = nullptr;
+        const wchar_t* xmlNamespace = nullptr;
+        if (node != XmlNodeType_Element || FAILED(reader->GetLocalName(&local, nullptr)) ||
+            FAILED(reader->GetNamespaceUri(&xmlNamespace, nullptr)) ||
+            !local || wcscmp(local, L"presentation") != 0 ||
+            !xmlNamespace || wcscmp(xmlNamespace, candidate.xmlNamespace) != 0) return PresentationFormat::unknown;
+        found = candidate.format;
+    }
+    return found;
+}
+
+struct RenameFileHandle {
+    HANDLE value;
+    ~RenameFileHandle() { if (value != INVALID_HANDLE_VALUE) CloseHandle(value); }
+};
+
+bool fileStamp(HANDLE file, BY_HANDLE_FILE_INFORMATION& stamp) {
+    return file != INVALID_HANDLE_VALUE && GetFileInformationByHandle(file, &stamp) &&
+        !(stamp.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_REPARSE_POINT));
+}
+
+bool sameSavedFile(HANDLE file, const BY_HANDLE_FILE_INFORMATION& expected) {
+    BY_HANDLE_FILE_INFORMATION actual{};
+    return fileStamp(file, actual) && expected.dwVolumeSerialNumber == actual.dwVolumeSerialNumber &&
+        expected.nFileIndexHigh == actual.nFileIndexHigh && expected.nFileIndexLow == actual.nFileIndexLow &&
+        expected.nFileSizeHigh == actual.nFileSizeHigh && expected.nFileSizeLow == actual.nFileSizeLow &&
+        CompareFileTime(&expected.ftLastWriteTime, &actual.ftLastWriteTime) == 0;
+}
+
+bool moveSavedFile(const std::wstring& oldPath, const std::wstring& newPath,
+        const BY_HANDLE_FILE_INFORMATION& expected) {
+    RenameFileHandle file{CreateFileW(oldPath.c_str(), DELETE | FILE_READ_ATTRIBUTES, FILE_SHARE_READ,
+        nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr)};
+    if (!sameSavedFile(file.value, expected)) return false;
+    const auto nameBytes = newPath.size() * sizeof(wchar_t);
+    const auto bufferSize = offsetof(FILE_RENAME_INFO, FileName) + nameBytes + sizeof(wchar_t);
+    std::vector<BYTE> buffer(bufferSize);
+    auto rename = reinterpret_cast<FILE_RENAME_INFO*>(buffer.data());
+    rename->ReplaceIfExists = FALSE;
+    rename->FileNameLength = static_cast<DWORD>(nameBytes);
+    std::memcpy(rename->FileName, newPath.data(), nameBytes);
+    return SetFileInformationByHandle(file.value, FileRenameInfo, rename, static_cast<DWORD>(bufferSize)) != FALSE;
+}
+}
+
+documentrename::Result Session::renameFile(unsigned long long id, const std::wstring& name) {
+    using documentrename::Result;
+    auto keep = shared_from_this();
+    auto view = find(id);
+    if (stopped || executing || refreshing || pendingCloseId || windowFrameBusy() || !view ||
+        view->readOnly || !storage::localFile(view->path) || excelEditing()) return Result::failed;
+    const auto oldPath = view->path;
+    const auto extension = documentrename::extension(oldPath);
+    if (!documentrename::validStem(name, extension)) return Result::failed;
+    const auto newPath = documentrename::target(oldPath, name);
+    if (newPath == oldPath) return Result::renamed;
+    if (storage::normalize(newPath) == storage::normalize(oldPath)) return Result::failed;
+    if (GetFileAttributesW(newPath.c_str()) != INVALID_FILE_ATTRIBUTES ||
+        GetLastError() != ERROR_FILE_NOT_FOUND) return Result::failed;
+
+    const auto position = std::distance(views.begin(), std::find(views.begin(), views.end(), view));
+    std::wstring reopenedPath;
+    Result result = Result::failed;
+    RenameTransition transition;
+    try {
+        Flag busy(executing);
+        auto document = view->document;
+        if (call(document.get(), L"FullName").str() != oldPath ||
+            call(document.get(), L"ReadOnly").boolean()) return Result::failed;
+        auto windows = call(document.get(), L"Windows").disp();
+        if (call(windows.get(), L"Count").number() != 1) return Result::failed;
+        const bool pptx = host == Host::PowerPoint && _wcsicmp(extension.c_str(), L".pptx") == 0;
+        const auto format = pptx ? presentationFormat(oldPath) : PresentationFormat::unknown;
+        if (pptx && format == PresentationFormat::unknown) return Result::failed;
+
+        auto documents = call(app.get(), host == Host::Word ? L"Documents" :
+            host == Host::Excel ? L"Workbooks" : L"Presentations").disp();
+        call(view->window.get(), L"Activate", DISPATCH_METHOD);
+        if (call(document.get(), L"FullName").str() != oldPath ||
+            call(document.get(), L"ReadOnly").boolean() ||
+            call(windows.get(), L"Count").number() != 1) return Result::failed;
+        // Save the live document in its current format and directory. Office
+        // never receives the requested destination as a path to write.
+        if (!call(document.get(), L"Saved").boolean()) call(document.get(), L"Save", DISPATCH_METHOD);
+        if (call(document.get(), L"FullName").str() != oldPath ||
+            !call(document.get(), L"Saved").boolean() ||
+            call(windows.get(), L"Count").number() != 1) return Result::failed;
+
+        RenameFileHandle saved{CreateFileW(oldPath.c_str(), FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+            FILE_FLAG_OPEN_REPARSE_POINT, nullptr)};
+        BY_HANDLE_FILE_INFORMATION stamp{};
+        if (!fileStamp(saved.value, stamp) || (pptx && presentationFormat(oldPath) != format)) return Result::failed;
+
+        const HWND root = GetAncestor(view->hwnd, GA_ROOT);
+        // A visual transition is optional; DWM/capture failure must not disable renaming.
+        if (root && root == GetForegroundWindow()) transition.begin(root, module);
+
+        if (host == Host::Word) call(document.get(), L"Close", DISPATCH_METHOD, {Var(0L)});
+        else if (host == Host::Excel) call(document.get(), L"Close", DISPATCH_METHOD, {Var(false)});
+        else call(document.get(), L"Close", DISPATCH_METHOD);
+        const auto oldKey = storage::normalize(oldPath);
+        const auto count = call(documents.get(), L"Count").number();
+        for (long i = 1; i <= count; ++i) {
+            auto openDocument = item(documents.get(), i);
+            if (storage::normalize(call(openDocument.get(), L"FullName").str()) == oldKey)
+                return Result::failed; // A BeforeClose handler can cancel without a COM error.
+        }
+
+        const bool moved = moveSavedFile(oldPath, newPath, stamp);
+        const auto& path = moved ? newPath : oldPath;
+        if (moved) {
+            result = Result::reopenFailed;
+            view->path = newPath;
+            persistView(*view);
+        }
+        // Reopen only the file we saved. A different file could have replaced
+        // the original while Office released its handles.
+        RenameFileHandle reopenFile{CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+            FILE_FLAG_OPEN_REPARSE_POINT, nullptr)};
+        if (sameSavedFile(reopenFile.value, stamp)) {
+            auto reopened = call(documents.get(), L"Open", DISPATCH_METHOD, {Var(path)}).disp();
+            if (reopened && storage::normalize(call(reopened.get(), L"FullName").str()) == storage::normalize(path)) {
+                reopenedPath = path;
+                if (moved) result = Result::renamed;
+            }
+        }
+    } catch (const ComError& error) {
+        report(error);
+    }
+    if (refresh() && !reopenedPath.empty()) {
+        const auto key = storage::normalize(reopenedPath);
+        auto reopened = std::find_if(views.begin(), views.end(), [&](const auto& item) {
+            return storage::normalize(item->path) == key;
+        });
+        if (reopened != views.end()) {
+            auto replacement = *reopened;
+            replacement->locked = view->locked;
+            replacement->groupId = view->groupId;
+            replacement->lastGroupId = view->lastGroupId;
+            replacement->independent = view->independent;
+            replacement->manualTabWidth = view->manualTabWidth;
+            views.erase(reopened);
+            views.insert(views.begin() + std::min(position, static_cast<std::vector<std::shared_ptr<View>>::difference_type>(views.size())), replacement);
+            syncPanes();
+            updateTaskbar();
+            redraw();
+            transition.reveal(GetAncestor(replacement->hwnd, GA_ROOT));
+        }
+    }
+    defer();
+    logEvent(L"document.rename.result", {{"viewId", (long long)id}, {"result", (int)result}});
+    return result;
+}
 void Session::create(bool independent,HWND owner){
     logEvent(L"document.new.request",{{"independent",independent},{"activeId",(long long)activeId}});
     if(stopped||executing||queuedNewDocument||!timer)return;
@@ -554,7 +777,7 @@ bool Session::recover(){
     panes.clear();settings.save();bool ok=refresh();lastOperation=ok?L"recovery.completed":L"recovery.deferred";if(ok)lastError=S_OK;defer();return ok;
 }
 std::wstring Session::state()const{
-    std::wstring r=L"{\"version\":\"0.2.3-beta.3\",\"host\":"+json(hostName(host))+L",\"style\":"+json(settings.barStyle==1?L"open":L"browser")+L",\"activeId\":"+std::to_wstring(activeId)+L",\"activeTabId\":"+std::to_wstring(activeTabId())+L",\"tabCount\":"+std::to_wstring(tabViews().size())+L",\"visible\":"+(settings.visible?L"true":L"false")+L",\"group\":"+(settings.group?L"true":L"false")+L",\"panes\":"+std::to_wstring(panes.size())+L",\"views\":[";
+    std::wstring r=L"{\"version\":\"0.2.3\",\"host\":"+json(hostName(host))+L",\"style\":"+json(settings.barStyle==1?L"open":L"browser")+L",\"activeId\":"+std::to_wstring(activeId)+L",\"activeTabId\":"+std::to_wstring(activeTabId())+L",\"tabCount\":"+std::to_wstring(tabViews().size())+L",\"visible\":"+(settings.visible?L"true":L"false")+L",\"group\":"+(settings.group?L"true":L"false")+L",\"panes\":"+std::to_wstring(panes.size())+L",\"views\":[";
     for(size_t i=0;i<views.size();i++){auto& v=views[i];if(i)r+=L",";r+=L"{\"id\":"+std::to_wstring(v->id)+L",\"hwnd\":"+std::to_wstring((UINT_PTR)v->hwnd)+L",\"title\":"+json(v->title)+L",\"groupId\":"+std::to_wstring(v->groupId)+L",\"saved\":"+(v->saved?L"true":L"false")+L",\"readOnly\":"+(v->readOnly?L"true":L"false")+L",\"locked\":"+(v->locked?L"true":L"false")+L",\"independent\":"+(v->independent?L"true":L"false")+L",\"taskbarRemoved\":"+(v->taskbarRemoved?L"true":L"false")+L",\"manualTabWidth\":"+std::to_wstring(v->manualTabWidth)+L",\"moved\":"+(v->moved?L"true":L"false")+L"}";}
     r+=L"],\"paneMetrics\":[";
     for(size_t i=0;i<panes.size();i++){
@@ -568,46 +791,32 @@ std::wstring Session::state()const{
 }
 void Session::menu(HWND owner,unsigned long long id,POINT pt){
     auto keep=shared_from_this();auto v=find(id);if(!v)return;
-    HMENU m=CreatePopupMenu();auto add=[&](UINT n,const wchar_t* t,bool enabled=true,bool checked=false){AppendMenuW(m,MF_STRING|(enabled?0:MF_GRAYED)|(checked?MF_CHECKED:0),n,tr(t));};
-    add(1,L"切换到此文档");add(12,L"在独立窗口中显示");add(13,L"移到新标签组窗口");add(14,L"移动到标签组…");add(15,L"新建为独立窗口");AppendMenuW(m,MF_SEPARATOR,0,nullptr);add(2,L"保存",!v->readOnly);add(3,L"另存为…",!v->readOnly);add(4,L"保存本组全部标签");AppendMenuW(m,MF_SEPARATOR,0,nullptr);
-    add(5,L"关闭",!v->locked);add(6,L"关闭其他标签");add(7,L"关闭左侧标签");add(8,L"关闭右侧标签");add(9,L"关闭全部标签");AppendMenuW(m,MF_SEPARATOR,0,nullptr);
-    add(10,L"锁定标签（防止从标签栏关闭）",true,v->locked);add(11,L"打开所在文件夹",!v->path.empty()&&v->path.find(L"://")==std::wstring::npos);
-    AppendMenuW(m,MF_SEPARATOR,0,nullptr);add(17,L"最近关闭…");add(18,L"重置此文件的标签设置",storage::localFile(v->path));add(19,L"管理中心");
-    UINT command=TrackPopupMenu(m,TPM_RETURNCMD|TPM_NONOTIFY,pt.x,pt.y,0,owner,nullptr);DestroyMenu(m);
+    UINT command = 0;
+    {
+        tabmenu::Menu menu(owner, host, darkMode(), language());
+        tabmenu::populate(menu, *v, language());
+        command = menu.track(pt);
+    }
+    if (!command || stopped) return;
+    v = find(id);
+    if (!v) return;
     if(command==1)activate(id);if(command==2)save(id);if(command==3)save(id,true);if(command==4)saveAll(v->hwnd);if(command==5)close(id);if(command==12)setIndependent(id,true);
     if(command>=6&&command<=9){std::vector<unsigned long long> ids;bool after=false;for(auto& x:tabViews(v->hwnd)){if(x->id==id){after=true;if(command==9)ids.push_back(x->id);continue;}if(command==6||command==9||(command==7&&!after)||(command==8&&after))ids.push_back(x->id);}batchClose(ids);}
     if(command==10){v->locked=!v->locked;redraw();}
-    if(command==11){std::wstring parent=v->path.substr(0,v->path.find_last_of(L"\\/"));ShellExecuteW(owner,L"open",parent.c_str(),nullptr,nullptr,SW_SHOWNORMAL);}
+    if(command==11&&!v->path.empty()&&v->path.find(L"://")==std::wstring::npos){std::wstring parent=v->path.substr(0,v->path.find_last_of(L"\\/"));ShellExecuteW(owner,L"open",parent.c_str(),nullptr,nullptr,SW_SHOWNORMAL);}
     if(command==13)newTabGroup(id);if(command==14)chooseGroup(owner,id);if(command==15)create(true,owner);
+    if(command==20)renameDialog(GetAncestor(owner,GA_ROOT),id);
     if(command==17)recentMenu(owner,pt);if(command==18)resetFilePreferences(id);if(command==19)openManagement(owner);
 }
 void Session::options(HWND owner,POINT pt){
-    auto keep=shared_from_this();HMENU m=CreatePopupMenu();auto add=[&](UINT n,const wchar_t* t,bool check=false){AppendMenuW(m,MF_STRING|(check?MF_CHECKED:0),n,tr(t));};
-    add(1,L"显示标签栏",settings.visible);add(2,L"单任务栏模式",settings.group);add(4,L"单标签时自动隐藏",settings.autoHide);add(5,L"双击标签关闭",settings.doubleClose);AppendMenuW(m,MF_SEPARATOR,0,nullptr);
-    add(6,L"标签置于顶部",settings.position==1);add(7,L"标签置于底部",settings.position==3);add(8,L"恢复窗口排列与任务栏");add(12,L"默认标签宽度…");add(17,L"最近关闭…");add(18,L"清除本应用已记住的文件设置");AppendMenuW(m,MF_SEPARATOR,0,nullptr);add(13,L"加载诊断…");add(14,L"导出脱敏诊断…");add(15,L"恢复标签栏与窗口");add(16,L"新建为独立窗口");add(9,L"打开文档…");add(10,L"打开日志与设置文件夹");add(11,L"关于 openOfficeTab");
-    HMENU appearance=CreatePopupMenu();
-    AppendMenuW(appearance,MF_STRING|(settings.barStyle==1?MF_CHECKED:0),23,tr(L"融入应用背景（浅灰开口标签）"));
-    AppendMenuW(appearance,MF_STRING|(settings.barStyle==0?MF_CHECKED:0),24,tr(L"独立标签栏（白色圆角面板）"));
-    AppendMenuW(appearance,MF_SEPARATOR,0,nullptr);
-    AppendMenuW(appearance,MF_STRING|(settings.accentPosition==1?MF_CHECKED:0),21,tr(L"强调线：顶部"));
-    AppendMenuW(appearance,MF_STRING|(settings.accentPosition==0?MF_CHECKED:0),20,tr(L"强调线：底部"));
-    AppendMenuW(appearance,MF_STRING|(settings.accentPosition==2?MF_CHECKED:0),22,tr(L"强调线：无"));
-    AppendMenuW(appearance,MF_SEPARATOR,0,nullptr);AppendMenuW(appearance,MF_STRING,25,tr(L"标签栏颜色…"));AppendMenuW(appearance,MF_STRING,26,tr(L"恢复默认颜色"));
-    HMENU theme=CreatePopupMenu();
-    const wchar_t* themes[]={L"跟随 Office / 系统（默认）",L"始终浅色",L"始终深色",L"仅跟随系统"};
-    for(int i=0;i<4;i++)AppendMenuW(theme,MF_STRING|(settings.themeMode==i?MF_CHECKED:0),30+i,tr(themes[i]));
-    AppendMenuW(appearance,MF_SEPARATOR,0,nullptr);AppendMenuW(appearance,MF_POPUP,(UINT_PTR)theme,tr(L"明暗主题"));
-    HMENU closing=CreatePopupMenu();
-    const wchar_t* actions[]={L"每次询问",L"只关闭当前文档",L"关闭本组全部文档"};
-    for(int i=0;i<3;i++)AppendMenuW(closing,MF_STRING|(settings.frameCloseAction==i?MF_CHECKED:0),40+i,tr(actions[i]));
-    InsertMenuW(m,3,MF_BYPOSITION|MF_POPUP,(UINT_PTR)closing,tr(L"点击窗口关闭按钮时"));
-    InsertMenuW(m,4,MF_BYPOSITION|MF_POPUP,(UINT_PTR)appearance,tr(L"标签外观"));
-    HMENU languages=CreatePopupMenu();
-    const wchar_t* labels[]={tr(L"跟随系统（默认）"),L"简体中文",L"English"};
-    for(int i=0;i<3;i++)AppendMenuW(languages,MF_STRING|(settings.language==i?MF_CHECKED:0),50+i,labels[i]);
-    InsertMenuW(m,5,MF_BYPOSITION|MF_POPUP,(UINT_PTR)languages,tr(L"语言 / Language"));
-    InsertMenuW(m,0,MF_BYPOSITION|MF_STRING,60,tr(L"管理中心"));
-    UINT cmd=TrackPopupMenu(m,TPM_RETURNCMD|TPM_NONOTIFY,pt.x,pt.y,0,owner,nullptr);DestroyMenu(m);
+    auto keep = shared_from_this();
+    UINT cmd = 0;
+    {
+        tabmenu::Menu menu(owner, host, darkMode(), language(), tabmenu::optionsRowHeight);
+        tabmenu::populateOptions(menu, settings, language());
+        cmd = menu.track(pt);
+    }
+    if (!cmd || stopped) return;
     if(cmd==60)openManagement(owner);
     if(cmd==1)toggleVisible();if(cmd==2)toggleGroup();if(cmd==4){settings.autoHide=!settings.autoHide;changed();}if(cmd==5){settings.doubleClose=!settings.doubleClose;changed();}
     if(cmd==6||cmd==7){settings.position=cmd==6?1:3;changed();}if(cmd==8){restore();changed();}if(cmd==9)open();if(cmd==10)ShellExecuteW(owner,L"open",dataDir().c_str(),nullptr,nullptr,SW_SHOWNORMAL);
@@ -618,5 +827,5 @@ void Session::options(HWND owner,POINT pt){
     if(cmd>=30&&cmd<=33)setThemeMode((int)cmd-30);if(cmd>=40&&cmd<=42)setFrameCloseAction((int)cmd-40);
     if(cmd>=50&&cmd<=52)setLanguage((int)cmd-50);
     if(cmd==17)recentMenu(owner,pt);if(cmd==18)resetAllFilePreferences();
-    if(cmd==11)MessageBoxW(owner,tr(L"openOfficeTab 0.2.3-beta.3\n永久免费 · MIT 开源\nWord / Excel / PowerPoint\n\n浏览器圆角标签 · 原生 Office 文档与保存流程\n拖动排序，中键关闭，右键更多操作。\n\n标签锁定仅防止标签栏误关，不替代 Office 文档保护。"),tr(L"关于 openOfficeTab"),MB_OK|MB_ICONINFORMATION);
+    if(cmd==11)MessageBoxW(owner,tr(L"openOfficeTab 0.2.3\n永久免费 · MIT 开源\nWord / Excel / PowerPoint\n\n浏览器圆角标签 · 原生 Office 文档与保存流程\n拖动排序，中键关闭，右键更多操作。\n\n标签锁定仅防止标签栏误关，不替代 Office 文档保护。"),tr(L"关于 openOfficeTab"),MB_OK|MB_ICONINFORMATION);
 }

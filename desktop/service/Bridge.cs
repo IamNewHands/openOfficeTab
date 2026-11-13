@@ -10,7 +10,7 @@ namespace OpenOfficeTab.Desktop {
  // Keep signed asset URL spelling compatible with existing clients after the display-name rename.
  internal static class DesktopProgram {internal const string Repo="https://github.com/IamNewHands/openOfficeTab",Author="https://github.com/IamNewHands";}
  internal sealed class Services {
-  internal const string DisplayVersion="0.2.3-beta.3";
+  internal const string DisplayVersion="0.2.3";
   internal static readonly Version Version=ReleaseVersion.Parse(DisplayVersion).Core;
   internal bool AcceptsPrerelease {get{var section=Store.Section("desktop");return section.ContainsKey("updateChannel")&&section["updateChannel"]=="beta";}}
   internal readonly StateStore Store;internal bool Preview=false;

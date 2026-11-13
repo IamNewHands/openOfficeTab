@@ -19,19 +19,21 @@
 
 </div>
 
+https://github.com/user-attachments/assets/1a013993-c86d-4efa-9c00-f8e019e599b9
+
 ---
 
 openOfficeTab 为桌面 Office 的功能区下方增加一条文档标签栏：点击切换、拖动排序、右键管理，并能将某个文档移出标签组，继续用独立窗口编辑。它保留 Office 原有文档对象和保存提示，不需要把文件转换成其他格式。
 
-当前版本为 **0.2.2**：统一安装器在 64 位 Windows 下自动匹配 32/64 位 Office，新增独立更新窗口，修复前台标签选择和跨位数加载诊断，保留共享中英文设置与脱敏日志。实际覆盖范围及限制见 [验证记录](docs/validation-v0.2.2.md)。
+当前版本为 **0.2.3**：统一原生菜单与对话框，新增安全的本机文件重命名，纳入 Beta 诊断及赞助按钮，保留 x86/x64 Office 统一安装。见[本版说明](docs/release-notes-v0.2.3.md)及[验证记录](docs/validation-v0.2.3.md)。
 
 原生标签栏、菜单支持中英文。安装器和管理中心支持中英文，在侧栏底部或安装内容区选择语言，与原生插件共享设置，默认跟随 Windows 显示语言。
 
-下载：[GitHub Releases](https://github.com/xlennart/openOfficeTab/releases/latest) · [CNB 国内镜像](https://cnb.cool/xlennart/openofficetab/-/releases)。两端提供相同安装包和校验文件。
+下载：[GitHub Releases](https://github.com/xlennart/openOfficeTab/releases/latest) · [CNB 国内镜像](https://cnb.cool/xlennart/openofficetab/-/releases)。两端提供相同安装包和校验文件。[OSS 备用下载（最后兜底）](https://openofficetab-xlennart.oss-cn-chengdu.aliyuncs.com/releases/v0.2.3/openOfficetab-0.2.3-setup-x64.exe)。
 
 安装器与管理中心仍为 x64，同一安装包包含两种 Office 插件。见 [架构与测试说明](docs/office-x86.md)。
 
-32 位 Office 在 VMware 虚拟机中测试：Windows 11 企业版 LTSC 26100（64 位），Microsoft 365 Apps 16.0.20527.20112（32 位）。此环境不覆盖所有 Office 版本。如遇问题，请按[故障报告模板](https://github.com/xlennart/openOfficeTab/issues/new?template=bug_report.yml)提供复现步骤、Office 版本与位数，附上导出的脱敏诊断日志，必要时附视频。
+32 位 Office 在 VMware 虚拟机中测试：Windows 11 企业版 LTSC 26100（64 位），Microsoft 365 Apps（32 位，上次核验基线 16.0.20527.20112，0.2.3 本轮未重新采集补丁版本）。此环境不覆盖所有 Office 版本。如遇问题，请按[故障报告模板](https://github.com/xlennart/openOfficeTab/issues/new?template=bug_report.yml)提供复现步骤、Office 版本与位数，附上导出的脱敏诊断日志，必要时附视频。
 
 ## 看看效果
 
@@ -86,11 +88,11 @@ openOfficeTab 为桌面 Office 的功能区下方增加一条文档标签栏：�
 
 从 0.2.2 起，“检查更新”会打开独立窗口，展示新版本和更新说明，或提示“当前已是最新版”。点击“立即更新”后下载、校验并安装。保存文档与保留设置的提示直接显示；Office 运行时，保持更新窗口打开并退出 Office 后继续。
 
-若再次遇到标签、内容或窗口异常，请在 **诊断与修复 → 导出诊断与日志** 导出 JSON，在原 issue 下说明触发步骤和发生时间并附上文件。结构化时间线记录操作、Office 事件、窗口/标签编号及错误码，默认不采集文档名称、路径、正文、单元格、账号或令牌，不自动上传。日志有轮转与容量限制，详见 [诊断日志说明](docs/diagnostic-logging.md)。相关问题先保持打开，继续收集使用反馈。
+若再次遇到标签、内容或窗口异常，请在 **诊断与修复 → 导出诊断与日志** 导出 JSON，在原 issue 下说明触发步骤和发生时间并附上文件。结构化时间线记录操作、Office 事件、窗口/标签编号及错误码，默认不采集文档名称、路径、正文、单元格、账号或令牌，不自动上传。日志有轮转与容量限制，详见 [诊断日志说明](docs/diagnostic-logging.md)。发布 0.2.3 后，#4、#5 因暂无后续反馈关闭，根因仍未确认；有新的复现证据可在原 issue 回复并请求重新打开。
 
 ## 它能做什么
 
-**诊断增强测试版：**[0.2.3-beta.3](https://github.com/xlennart/openOfficeTab/releases/tag/v0.2.3-beta.3) 将点击/激活观察和实际加载模块指纹集成进原有诊断导出，issue #5 根因仍未确认。正式版仍为 0.2.2。在 Beta 管理中心的“关于与更新 → 更新通道”选择“正式版 / Beta 版”，默认正式版，切换不会降级。issue #5 仍需现场反馈验证。[本版说明](docs/release-notes-v0.2.3-beta.3.md) · [日志机制](docs/diagnostic-logging.md)。
+0.2.3 已纳入诊断 Beta 的改动，issue #5 的唯一根因仍未确认。在“关于与更新 → 更新通道”选择“正式版 / Beta 版”，默认正式版且切换不会降级。[日志机制](docs/diagnostic-logging.md)。
 
 
 | 功能 | 操作与行为 |
@@ -98,7 +100,7 @@ openOfficeTab 为桌面 Office 的功能区下方增加一条文档标签栏：�
 | 文档标签 | 点击切换；未保存状态显示 `*`；拖动调整顺序 |
 | 新建与列表 | 标签后的 `+` 新建，向下箭头列出文档，`…` 打开设置 |
 | 快速关闭 | 点击 `×` 或中键；可设置双击关闭；最后文档关闭后退出应用，取消关闭则继续编辑 |
-| 右键管理 | 保存、另存为、关闭其他 / 左侧 / 右侧 / 全部标签、打开所在文件夹 |
+| 右键管理 | 保存、另存为、重命名文件、关闭其他 / 左侧 / 右侧 / 全部标签、打开所在文件夹 |
 | 独立窗口 | 右键“在独立窗口中显示”；原窗口、原文件和未保存编辑保留 |
 | 多个标签组 | 拖出形成新标签组窗口，拖到另一个标签栏合并；也可通过菜单选择目标组 |
 | 标签宽度 | 拖动标签右边缘单独调宽（80–360 DIP）；按文件记住；默认规则支持固定、按标题或压缩 |
@@ -117,19 +119,19 @@ openOfficeTab 为桌面 Office 的功能区下方增加一条文档标签栏：�
 
 ## 安装
 
-1. 从 [Releases](https://github.com/xlennart/openOfficeTab/releases/latest) 下载 `openOfficetab-0.2.2-setup-x64.exe`。
+1. 从 [Releases](https://github.com/xlennart/openOfficeTab/releases/latest) 下载 `openOfficetab-0.2.3-setup-x64.exe`。
 2. 保存文档并退出 Word、Excel、PowerPoint。
 3. 双击安装程序，在安装页选择组件后点击 **安装**。
 4. 重新打开 Office 文档，标签栏会出现在功能区下方。
 
 安装按当前 Windows 用户注册，无需管理员权限。安装程序不会替你关闭 Office 窗口。
 
-也可下载 `openOfficetab-0.2.2-win-x64.zip`，完整解压后运行 `Install.cmd`。ZIP 包与 EXE 安装相同的插件；源码可从仓库获取。
+也可下载 `openOfficetab-0.2.3-win-x64.zip`，完整解压后运行 `Install.cmd`。ZIP 包与 EXE 安装相同的插件；源码可从仓库获取。
 
 Release 附有 `SHA256SUMS.txt`。安装程序尚未做代码签名，可先核对文件校验值，或自行从源码构建。
 
 ```powershell
-Get-FileHash .\openOfficetab-0.2.2-setup-x64.exe -Algorithm SHA256
+Get-FileHash .\openOfficetab-0.2.3-setup-x64.exe -Algorithm SHA256
 ```
 
 ### 卸载
@@ -147,6 +149,11 @@ powershell -NoProfile -File .\scripts\uninstall.ps1 -RemoveSettings
 ### 界面语言
 
 在 **… → 语言 / Language** 中选择 **跟随系统（默认） / 简体中文 / English**。自动模式根据 Windows 显示语言选择：中文用简体中文，其他语言用英文。选择会跨重启保存，并同步到已打开的 Office 实例；刷新功能区、菜单和后续打开的插件对话框，不重建文档窗格。文件名、路径和正文不翻译；Office 保存提示和 Windows 原生窗口沿用各自语言。管理中心目前使用简体中文，不改变原生插件语言。
+
+### 重命名文件
+
+右键标签 → **重命名文件…**，输入不含扩展名的新名称。Office 按原格式保存编辑并关闭文档，Windows 重命名后再重新打开。已有同名目标时保留两个文件。适用于已保存、可写且只有一个窗口的文档。使用边界与验收清单见[重命名验证](docs/rename-validation.md)。
+
 
 ### 让一个文档使用独立窗口
 
@@ -236,8 +243,8 @@ powershell -NoProfile -File .\scripts\uninstall.ps1 -RemoveSettings
 | :--- | :--- |
 | 早期实机验证环境 | Windows 11、Office Home 2024 x64、Word / Excel / PowerPoint 16.0.20430.20146 |
 | 已验证缩放 | 200% 缩放；水平栏被本机 Office 限制为至少 80 物理像素，约 40 DIP |
-| 发布架构 | 0.2.2：64 位 Windows 下自动匹配 x86/x64 Office，同一安装包包含两种原生载荷 |
-| x86 / 其他 Office 版本 | 32 位 Office 在 VMware 中测试，版本 16.0.20527.20112；64 位在宿主机测试，版本 16.0.20527.20088；其他版本未全部覆盖 |
+| 发布架构 | 0.2.3：64 位 Windows 下自动匹配 x86/x64 Office，同一安装包包含两种原生载荷 |
+| x86 / 其他 Office 版本 | 0.2.3：宿主机 Office 16.0.20527.20150 x64；VMware 内 32 位 Office（上次核验基线 16.0.20527.20112，本轮未重采补丁版本）；其他版本未全部覆盖 |
 | Office 网页版 / macOS | 不支持；这是 Windows 原生 COM 加载项 |
 
 目前是可使用的早期版本，不承诺覆盖成熟商用标签插件的全部功能。尚未提供全局快捷键和完整辅助技术语义。验证方法与边界见 [验证记录](docs/validation.md)。
@@ -262,6 +269,7 @@ powershell -NoProfile -File .\scripts\uninstall.ps1 -RemoveSettings
 
 | 版本 | 日期 | 主要更新 |
 | :--- | :--- | :--- |
+| [0.2.3](https://github.com/xlennart/openOfficeTab/releases/tag/v0.2.3) | 2026-11-12 | 统一原生菜单与弹窗、安全重命名、纳入 Beta 诊断、爱发电入口及 OSS 最后兜底。 |
 | [0.2.2](https://github.com/xlennart/openOfficeTab/releases/tag/v0.2.2) | 2026-10-30 | 统一 x86/x64 Office 安装器、独立更新窗口、加载诊断及标签选择修复。 |
 | [0.2.1](https://github.com/xlennart/openOfficeTab/releases/tag/v0.2.1) | 2026-10-29 | 安装器与管理中心中英双语，共享语言偏好，修正小窗口布局和英文说明控件名称。 |
 | [0.2.0](https://github.com/xlennart/openOfficeTab/releases/tag/v0.2.0) | 2026-10-28 | 管理中心、脱敏日志导出与自动选线更新；标签与文档内容同步的初步修复；统一功能区布局。 |
@@ -289,7 +297,7 @@ pwsh -File .\scripts\package.ps1
 
 原生构建产生 `dist/x64/openOfficetab.dll` 与 `dist/x86/openOfficetab.dll`；`scripts/build-desktop.ps1` 使用 Node.js、Rust/MSVC 构建 Tauri 管理中心及 Windows .NET Framework 本地服务。管理中心使用 WebView2，Office 内的标签栏仍为原生 C++。打包产生 EXE、ZIP、校验文件和签名更新元数据。GitHub Actions 会编译并校验安装包；Office 的实际运行测试需要本机安装桌面 Office。
 
-源码、测试与发布流程见 [开发说明](docs/development.md)；与 Office Tab 的差别及建议见 [功能对比与开发优先级](docs/comparison.md)。欢迎通过 Issues 提交可复现的问题或功能建议；请注明 Windows、Office 版本、位数及缩放比例。
+提交 PR 前请阅读[贡献指南](CONTRIBUTING.zh-CN.md)。源码、测试与发布流程见[开发说明](docs/development.md)，与 Office Tab 的差别见[功能对比与开发优先级](docs/comparison.md)。欢迎通过 [Issues](https://github.com/xlennart/openOfficeTab/issues) 提交可复现的问题或功能建议，并注明 Windows、Office 版本、位数及缩放比例。
 
 ## 许可证
 

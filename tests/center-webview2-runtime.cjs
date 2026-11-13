@@ -44,6 +44,12 @@ let page,browser;
    assert(geometry.channelReceivesPointer,'The fixed footer must not intercept channel input');
    const tip=await page.locator('#oot-update-channel').locator('..').locator('[title]').getAttribute('title');
    assert(language==='en'?!/\p{Script=Han}/u.test(tip):/\p{Script=Han}/u.test(tip));
+   for(const selector of ['#review-minimize','#review-maximize','#review-close']){
+    const button=page.locator(selector);assert((await button.getAttribute('aria-label')).length>0);
+    await page.mouse.move(200,150);const normal=await button.evaluate(e=>getComputedStyle(e).backgroundColor);
+    await button.hover();const hover=await button.evaluate(e=>getComputedStyle(e).backgroundColor);
+    assert.notEqual(hover,normal,'Window button hover must cover its control');
+   }
    await page.screenshot({path:path.join(jobRoot,`${size}-${language}.png`)});
    report.checks.push({size,language,saved,geometry,passed:true});save();
   }

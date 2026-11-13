@@ -1,3 +1,4 @@
 {
+  "$schema": "./update-sources.schema.json",
   "ownedSources": []
 }
