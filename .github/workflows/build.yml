@@ -4,7 +4,7 @@ on:
   pull_request:
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   windows-x64:
     runs-on: windows-2022
@@ -50,3 +50,33 @@ jobs:
         with:
           name: openOfficetab-win-x64
           path: delivery/*
+      - name: Publish rolling nightly release
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "nightly"
+          $title = "openOfficeTab nightly (run #${{ github.run_number }})"
+          $timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+          $commit = "${{ github.sha }}".Substring(0, 7)
+          $runUrl = "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          $notes = "openOfficeTab Windows x64 nightly build.`n`n- Built at: $timestamp`n- Run: [run #${{ github.run_number }}]($runUrl)`n- Commit: ``$commit```n"
+          $files = @(Get-ChildItem -Path "delivery/*" -File | ForEach-Object { $_.FullName })
+          $viewOutput = & gh release view $tag --repo ${{ github.repository }} 2>&1
+          if ($LASTEXITCODE -eq 0) {
+            & gh release upload $tag @files --repo ${{ github.repository }} --clobber
+            & gh release edit $tag --repo ${{ github.repository }} --title $title --notes $notes
+            $releaseId = (& gh api "repos/${{ github.repository }}/releases/tags/$tag" --jq .id)
+            & gh api -X PATCH "repos/${{ github.repository }}/releases/$releaseId" -F draft=true | Out-Null
+            & gh api -X PATCH "repos/${{ github.repository }}/releases/$releaseId" -F draft=false | Out-Null
+          } else {
+            & gh release create $tag @files --repo ${{ github.repository }} --title $title --notes $notes --prerelease
+          }
+
+          $releases = (& gh release list --repo ${{ github.repository }} --json tagName --jq '.[].tagName')
+          foreach ($r in $releases) {
+            if ($r -and $r -ne $tag) {
+              & gh release delete $r --repo ${{ github.repository }} --yes --cleanup-tag
+            }
+          }
