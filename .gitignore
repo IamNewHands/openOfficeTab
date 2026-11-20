@@ -17,6 +17,9 @@ __pycache__/
 .codex/config.toml
 .codex/config.toml.backup.*
 
+# Agent scratch workspace (one-off scripts, logs, unpacked intermediates)
+_scratch/
+
 # Tauri frontend dependencies and generated bundle
 /desktop/node_modules/
 /tests/webview2/node_modules/
